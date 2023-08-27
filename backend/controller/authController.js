@@ -143,6 +143,77 @@ const authController = {
     //sending response
     res.status(200).json({ user: userDto, auth: true });
   },
+
+  //logout method
+  async logout(req, res, next) {
+    //fetch refresh token from cookies and delete from database
+    const { refreshToken } = req.cookies;
+    try {
+      await RefreshToken.deleteOne({ token: refreshToken });
+    } catch (error) {
+      return next(error);
+    }
+
+    //clearcookies
+    res.clearCookie("accessToken");
+    res.clearCookie("refreshToken");
+    //sending response
+    res.status(200).json({ user: null, auth: false });
+  },
+
+  //refresh method
+  async refresh(req, res, next) {
+    //fetch refreshToken from cookies
+    const originalrefreshToken = req.cookies.refreshToken;
+
+    //verify refreshtoken
+    let _id;
+    try {
+      _id = JwtService.verifyRefreshToken(originalrefreshToken)._id;
+    } catch (e) {
+      const error = {
+        status: 401,
+        message: "unAuthorized!!!",
+      };
+      return next(error);
+    }
+
+    //match id and token
+    try {
+      const match = await RefreshToken.findOne({
+        _id,
+        token: originalrefreshToken,
+      });
+      if (!match) {
+        const error = {
+          status: 401,
+          message: "unAuthorized!!!",
+        };
+        return next(error);
+      }
+    } catch (error) {
+      return next(error);
+    }
+    //genrate new tokens
+    const accessToken = JwtService.signAccessToken({ _id: _id }, "30m");
+    const refreshToken = JwtService.signRefreshToken({ _id: _id }, "60m");
+    //update refreshToken to the database
+    await RefreshToken.updateOne({ _id: _id }, { token: refreshToken });
+    //sending tokens to the cookies
+    res.cookie("accessToken", accessToken, {
+      maxAge: 1000 * 60 * 60 * 24,
+      httpOnly: true,
+    });
+    res.cookie("refreshToken", refreshToken, {
+      maxAge: 1000 * 60 * 60 * 24,
+      httpOnly: true,
+    });
+    //DTO
+    const user = await User.findOne({ _id });
+    const userDto = new UserDTO(user);
+    //sending response
+    res.status(200).json({ user: userDto });
+  },
 };
 
 export default authController;
